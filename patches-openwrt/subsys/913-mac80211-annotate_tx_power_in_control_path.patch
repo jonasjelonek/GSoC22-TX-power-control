@@ -1,0 +1,62 @@
+--- a/include/net/mac80211.h
++++ b/include/net/mac80211.h
+@@ -1022,6 +1022,10 @@ ieee80211_rate_get_vht_nss(const struct
+  * @control.use_cts_prot: use RTS/CTS
+  * @control.short_preamble: use short preamble (CCK only)
+  * @control.skip_table: skip externally configured rate table
++ * @control.txpower_idx: Tx-power level index for whole packet,
++ * 	referring to an idx described by ieee80211_hw->txpower_ranges. An
++ * 	negative idx means 'invalid', 'unset' or 'default'. Behavior in this
++ * 	case is driver-specific.
+  * @control.jiffies: timestamp for expiry on powersave clients
+  * @control.vif: virtual interface (may be NULL)
+  * @control.hw_key: key to encrypt with (may be NULL)
+@@ -1070,7 +1074,7 @@ struct ieee80211_tx_info {
+ 					u8 use_cts_prot:1;
+ 					u8 short_preamble:1;
+ 					u8 skip_table:1;
+-					/* 2 bytes free */
++					s16 txpower_idx;
+ 				};
+ 				/* only needed before rate control */
+ 				unsigned long jiffies;
+@@ -1131,14 +1135,16 @@ ieee80211_info_get_tx_time_est(struct ie
+  *
+  * @rate_idx: The actual used rate.
+  * @try_count How often the rate was tried.
+- * @tx_power_idx An idx into the ieee80211_hw->tx_power_levels list of the
+- * 	corresponding wifi hardware. The idx shall point to the power level
+- * 	that was used when sending the packet.
++ * @tx_power_idx An idx into the power set described by
++ * 	ieee80211_hw->txpower_ranges for the corresponding wifi hardware.
++ * 	The idx shall point to the power level that was used when sending
++ * 	the packet at this rate. A negative value is considered as 'invalid'
++ * 	or 'no power level reported by the driver'.
+  */
+ struct ieee80211_rate_status {
+ 	struct rate_info rate_idx;
+ 	u8 try_count;
+-	u8 tx_power_idx;
++	s16 tx_power_idx;
+ };
+ 
+ /**
+@@ -2034,6 +2040,10 @@ enum ieee80211_sta_rx_bandwidth {
+  * @rcu_head: RCU head used for freeing the table on update
+  * @rate: transmit rates/flags to be used by default.
+  *	Overriding entries per-packet is possible by using cb tx control.
++ * @rate.txpower_idx: An idx pointing to a tx-power level described by
++ * 	ieee80211_hw->txpower_ranges that should be used for the mrr stage.
++ * 	A negative value means 'invalid', 'unset' or 'default' power level,
++ * 	actual behavior is driver-specific.
+  */
+ struct ieee80211_sta_rates {
+ 	struct rcu_head rcu_head;
+@@ -2043,6 +2053,7 @@ struct ieee80211_sta_rates {
+ 		u8 count_cts;
+ 		u8 count_rts;
+ 		u16 flags;
++		s16 txpower_idx;
+ 	} rate[IEEE80211_TX_RATE_TABLE_SIZE];
+ };
+ 

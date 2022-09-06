@@ -1,0 +1,56 @@
+--- a/include/net/mac80211.h
++++ b/include/net/mac80211.h
+@@ -2505,6 +2505,27 @@ enum ieee80211_hw_flags {
+ };
+ 
+ /**
++ * struct ieee80211_hw_txpower_range - Power range for transmit power
++ *
++ * This struct can be used by drivers to define multiple tx-power ranges with
++ * different scales according to the hardware capabilities. A tx-power range
++ * describes either absolute power levels or power offsets relative to a base
++ * power.
++ *
++ * @start_idx The starting idx of the range. @start_idx is always the lowest
++ * 	idx of the power range.
++ * @start_pwr The power level at idx @start_idx in 0.25 dBm units.
++ * @n_levels How many power levels this range has.
++ * @pwr_step The power step width in 0.25 dBm units.
++ */
++struct ieee80211_hw_txpower_range {
++	u8 start_idx;
++	u8 n_levels;
++	s8 start_pwr;
++	s8 pwr_step;
++};
++
++/**
+  * struct ieee80211_hw - hardware information and state
+  *
+  * This structure contains the configuration and hardware
+@@ -2629,11 +2650,10 @@ enum ieee80211_hw_flags {
+  *
+  * @max_mtu: the max mtu could be set.
+  *
+- * @tx_power_levels: a list of power levels supported by the wifi hardware.
+- * 	The power levels can be specified either as integer or fractions.
+- * 	The power level at idx 0 shall be the maximum positive power level.
++ * @txpower_ranges: a list of tx-power level ranges supported by the wifi
++ *  hardware. The driver can specify multiple ranges with e.g. different scales.
+  *
+- * @max_txpwr_levels_idx: the maximum valid idx of 'tx_power_levels' list.
++ * @n_txpower_ranges: the number of power ranges defined by the wifi driver.
+  */
+ struct ieee80211_hw {
+ 	struct ieee80211_conf conf;
+@@ -2672,8 +2692,8 @@ struct ieee80211_hw {
+ 	u8 tx_sk_pacing_shift;
+ 	u8 weight_multiplier;
+ 	u32 max_mtu;
+-	const s8 *tx_power_levels;
+-	u8 max_txpwr_levels_idx;
++	struct ieee80211_hw_txpower_range *txpower_ranges;
++	u8 n_txpower_ranges;
+ };
+ 
+ static inline bool _ieee80211_hw_check(struct ieee80211_hw *hw,
