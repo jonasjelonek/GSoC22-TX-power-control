@@ -9,4 +9,5 @@
 | 913			| Annotate tx-power per packet in ieee80211_tx_info, per mrr in ieee80211_sta_rates; modify ieee80211_rate_status |
 | 914			| Add hw flags for drivers to propagate TPC support |
 | 915			| Add an utility function in mac80211 to convert ieee80211_tx_rate to rate_info (needed for use in ath9k, ...) |
-| 916			| Add debugfs entry per STA to set fixed tx-power |
+| 916			| Add minstrel_ht debugfs entry per STA to set fixed tx-power |
+| 924			| Add mac80211 debugfs entry per STA to set tx power mode and fixed power |

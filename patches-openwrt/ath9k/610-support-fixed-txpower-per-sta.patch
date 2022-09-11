@@ -1,0 +1,94 @@
+--- a/drivers/net/wireless/ath/ath9k/xmit.c
++++ b/drivers/net/wireless/ath/ath9k/xmit.c
+@@ -1193,15 +1193,22 @@ void ath_update_max_aggr_framelen(struct
+ }
+ 
+ static u8 ath_get_rate_txpower(struct ath_softc *sc, struct ath_buf *bf,
+-			       u8 rateidx, s16 tpc_power, bool is_40, bool is_cck)
++			       struct ieee80211_sta *sta, u8 rateidx,
++			       s16 tpc_power, bool is_40, bool is_cck)
+ {
+ 	u8 max_power;
+ 	struct sk_buff *skb;
+ 	struct ath_frame_info *fi;
+ 	struct ieee80211_tx_info *info;
+ 	struct ath_hw *ah = sc->sc_ah;
++	int txpower;
+ 
+-	if (sc->tx99_state || !ah->tpc_enabled || tpc_power < 0)
++	if (sta && sta->txpwr.type == NL80211_TX_POWER_FIXED)
++		txpower = sta->txpwr.power;
++	else
++		txpower = tpc_power;
++
++	if (sc->tx99_state || !ah->tpc_enabled || txpower < 0)
+ 		return MAX_RATE_POWER;
+ 
+ 	skb = bf->bf_mpdu;
+@@ -1209,8 +1216,6 @@ static u8 ath_get_rate_txpower(struct at
+ 	info = IEEE80211_SKB_CB(skb);
+ 
+ 	if (!AR_SREV_9300_20_OR_LATER(ah)) {
+-		int txpower = tpc_power;
+-
+ 		if (is_40) {
+ 			u8 power_ht40delta;
+ 			struct ar5416_eeprom_def *eep = &ah->eeprom.def;
+@@ -1255,10 +1260,10 @@ static u8 ath_get_rate_txpower(struct at
+ 	} else if (!bf->bf_state.bfs_paprd) {
+ 		if (rateidx < 8 && (info->flags & IEEE80211_TX_CTL_STBC))
+ 			max_power = min_t(u8, ah->tx_power_stbc[rateidx],
+-					  tpc_power);
++					  txpower);
+ 		else
+ 			max_power = min_t(u8, ah->tx_power[rateidx],
+-					  tpc_power);
++					  txpower);
+ 	} else {
+ 		max_power = ah->paprd_training_power;
+ 	}
+@@ -1276,6 +1281,7 @@ static void ath_buf_set_rate(struct ath_
+ 	struct ieee80211_tx_rate *rates;
+ 	const struct ieee80211_rate *rate;
+ 	struct ieee80211_hdr *hdr;
++	struct ieee80211_sta *sta;
+ 	struct ath_frame_info *fi = get_frame_info(bf->bf_mpdu);
+ 	u32 rts_thresh = sc->hw->wiphy->rts_threshold;
+ 	int i;
+@@ -1286,6 +1292,9 @@ static void ath_buf_set_rate(struct ath_
+ 	rates = bf->rates;
+ 	hdr = (struct ieee80211_hdr *)skb->data;
+ 
++	rcu_read_lock();
++	sta = ieee80211_find_sta_by_ifaddr(ah->hw, hdr->addr1, hdr->addr2);
++
+ 	/* set dur_update_en for l-sig computation except for PS-Poll frames */
+ 	info->dur_update = !ieee80211_is_pspoll(hdr->frame_control);
+ 	info->rtscts_rate = fi->rtscts_rate;
+@@ -1342,7 +1351,7 @@ static void ath_buf_set_rate(struct ath_
+ 				info->flags |= ATH9K_TXDESC_CTSENA;
+ 			}
+ 
+-			info->txpower[i] = ath_get_rate_txpower(sc, bf, rix,
++			info->txpower[i] = ath_get_rate_txpower(sc, bf, sta, rix,
+ 						bf->txpower_idx[i], is_40, false);
+ 			bf->txpower_idx[i] = info->txpower[i];
+ 			continue;
+@@ -1374,7 +1383,7 @@ static void ath_buf_set_rate(struct ath_
+ 			phy, rate->bitrate * 100, len, rix, is_sp);
+ 
+ 		is_cck = IS_CCK_RATE(info->rates[i].Rate);
+-		info->txpower[i] = ath_get_rate_txpower(sc, bf, rix,
++		info->txpower[i] = ath_get_rate_txpower(sc, bf, sta, rix,
+ 					bf->txpower_idx[i], false, is_cck);
+ 		bf->txpower_idx[i] = info->txpower[i];
+ 	}
+@@ -1386,6 +1395,8 @@ static void ath_buf_set_rate(struct ath_
+ 	/* ATH9K_TXDESC_RTSENA and ATH9K_TXDESC_CTSENA are mutually exclusive. */
+ 	if (info->flags & ATH9K_TXDESC_RTSENA)
+ 		info->flags &= ~ATH9K_TXDESC_CTSENA;
++
++	rcu_read_unlock();
+ }
+ 
+ static enum ath9k_pkt_type get_hw_packet_type(struct sk_buff *skb)

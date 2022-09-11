@@ -8,3 +8,4 @@
 | 606			| Include and use tx-power in tx control path |
 | 607			| Report used tx-power per mrr stage in tx status path |
 | 608			| Activate TPC in ath9k_hw structure |
+| 610			| Add support for fixed txpower set in ieee80211_sta |
