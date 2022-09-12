@@ -124,7 +124,7 @@
 -		last = (i == IEEE80211_TX_MAX_RATES - 1) ||
 -		       !minstrel_ht_txstat_valid(mp, mi, &ar[i + 1]);
 +	if (st->rates && st->n_rates) {
-+		last = !minstrel_ht_ri_txstat_valid(mp, mi, &(str->rates[0]));
++		last = !minstrel_ht_ri_txstat_valid(mp, mi, &(st->rates[0]));
 +		for (i = 0; !last; i++) {
 +			last = (i == st->n_rates - 1) ||
 +				minstrel_ht_ri_txstat_valid(mp, mi,
