@@ -1,0 +1,67 @@
+From 80e559c6989b892a838554ff08b375a6eb3882c6 Mon Sep 17 00:00:00 2001
+From: Jonas Jelonek <jelonek.jonas@gmail.com>
+Date: Wed, 18 Jan 2023 12:42:59 +0100
+Subject: [PATCH 3/7] mac80211: add hardware flags for TPC support
+
+This patch adds two hardware flags for drivers to indicate their
+transmit power control (TPC) capabilities: TPC per packet or TPC per mrr
+stage of each data packet. The driver has to specify appropriate support
+flags when the hardware is registered at the mac80211.
+
+Signed-off-by: Thomas Huehn <thomas.huehn@hs-nordhausen.de>
+Signed-off-by: Jonas Jelonek <jelonek.jonas@gmail.com>
+---
+ include/net/mac80211.h | 9 +++++++++
+ net/mac80211/debugfs.c | 2 ++
+ 2 files changed, 11 insertions(+)
+
+--- a/include/net/mac80211.h
++++ b/include/net/mac80211.h
+@@ -2648,6 +2648,13 @@ struct ieee80211_txq {
+  * 	adaptive sensitivity feature (e.g. ath9k: ANI, mt76: SCS) AND allows
+  * 	the stack to enable/disable it dynamically.
+  *
++ * @IEEE80211_HW_SUPPORTS_TPC_PER_PACKET: The hardware/driver supports transmit
++ * 	power control (TPC) with one power level per packet.
++ *
++ * @IEEE80211_HW_SUPPORTS_TPC_PER_MRR: The hardware/driver supports transmit
++ * 	power control (TPC) with individual power levels for each
++ * 	multi-rate-retry (mrr) stage per packet.
++ *
+  * @NUM_IEEE80211_HW_FLAGS: number of hardware flags, used for sizing arrays
+  */
+ enum ieee80211_hw_flags {
+@@ -2706,6 +2713,8 @@ enum ieee80211_hw_flags {
+ 	IEEE80211_HW_DETECTS_COLOR_COLLISION,
+ 	IEEE80211_HW_MLO_MCAST_MULTI_LINK_TX,
+ 	IEEE80211_HW_ADAPTIVE_SENSITIVITY_CTRL,
++	IEEE80211_HW_SUPPORTS_TPC_PER_PACKET,
++	IEEE80211_HW_SUPPORTS_TPC_PER_MRR,
+ 
+ 	/* keep last, obviously */
+ 	NUM_IEEE80211_HW_FLAGS
+--- a/net/mac80211/debugfs.c
++++ b/net/mac80211/debugfs.c
+@@ -497,6 +497,8 @@ static const char *hw_flag_names[] = {
+ 	FLAG(DETECTS_COLOR_COLLISION),
+ 	FLAG(MLO_MCAST_MULTI_LINK_TX),
+ 	FLAG(ADAPTIVE_SENSITIVITY_CTRL),
++	FLAG(SUPPORTS_TPC_PER_PACKET),
++	FLAG(SUPPORTS_TPC_PER_MRR),
+ #undef FLAG
+ };
+ 
+--- a/net/mac80211/main.c
++++ b/net/mac80211/main.c
+@@ -1010,6 +1010,11 @@ int ieee80211_register_hw(struct ieee802
+ 			return -EINVAL;
+ 	}
+ 
++	if (WARN_ON((ieee80211_hw_check(hw, SUPPORTS_TPC_PER_PACKET) ||
++		     ieee80211_hw_check(hw, SUPPORTS_TPC_PER_MRR)) &&
++		    !hw->n_txpower_ranges))
++			return -EINVAL;
++
+ #ifdef CONFIG_PM
+ 	if (hw->wiphy->wowlan && (!local->ops->suspend || !local->ops->resume))
+ 		return -EINVAL;

@@ -1,0 +1,138 @@
+From b8c3417d1908eb34e5e7d4973627c67b1f170576 Mon Sep 17 00:00:00 2001
+From: Jonas Jelonek <jelonek.jonas@gmail.com>
+Date: Mon, 16 Jan 2023 13:58:46 +0100
+Subject: [PATCH 1/7] mac80211: modify tx-power level annotation
+
+Modifies the annotation of supported tx-power levels for a wifi device
+in ieee80211_hw. This annotation was introduced with commit 44fa75f207d8
+("mac80211: extend current rate control tx status API") to be able to
+operate on power indices instead of absolute power values, providing
+better support for different hardware capabilities.
+
+The former annotation uses a 'const s8' for each power level. The choice
+made with the former commit was not the best as this kind of annotation
+may require much memory if there is a high number of power levels. Thus,
+it is now replaced by a new struct ieee80211_hw_txpower_range. This
+struct describes a tx-power range by specifiying a start index, the
+number of levels, a start power value and the power step width.
+
+A wifi driver should specify valid tx-power ranges when it registers a
+device in mac80211 by providing a pointer to a list and a length in the
+corresponding ieee80211_hw members.
+Drivers can define multiple tx-power ranges with each different scales
+depending on the hardware capabilities.
+
+Signed-off-by: Thomas Huehn <thomas.huehn@hs-nordhausen.de>
+Signed-off-by: Jonas Jelonek <jelonek.jonas@gmail.com>
+---
+ include/net/mac80211.h | 33 +++++++++++++++++++++++++++------
+ 1 file changed, 27 insertions(+), 6 deletions(-)
+
+--- a/include/net/mac80211.h
++++ b/include/net/mac80211.h
+@@ -1215,14 +1215,14 @@ ieee80211_info_get_tx_time_est(struct ie
+  *
+  * @rate_idx The actual used rate.
+  * @try_count How often the rate was tried.
+- * @tx_power_idx An idx into the ieee80211_hw->tx_power_levels list of the
++ * @txpower_idx An idx referring to struct ieee80211_hw->txpower_ranges of the
+  * 	corresponding wifi hardware. The idx shall point to the power level
+  * 	that was used when sending the packet.
+  */
+ struct ieee80211_rate_status {
+ 	struct rate_info rate_idx;
++	s16 txpower_idx;
+ 	u8 try_count;
+-	u8 tx_power_idx;
+ };
+ 
+ /**
+@@ -2703,6 +2703,27 @@ enum ieee80211_hw_flags {
+ };
+ 
+ /**
++ * struct ieee80211_hw_txpower_range - Power range for transmit power
++ *
++ * This struct should be used by drivers to define multiple tx-power ranges
++ * with different scales according to the hardware capabilities. A tx-power
++ * range describes either absolute power levels or power offsets relative to
++ * a base power.
++ *
++ * @start_idx: The starting index of the range. @start_idx is always the lowest
++ * 	idx of the power range.
++ * @start_pwr: The power level corresponding to %start_idx in 0.25 dBm units.
++ * @n_levels: How many power levels this range has.
++ * @pwr_step: The power step width in 0.25 dBm units.
++ */
++struct ieee80211_hw_txpower_range {
++	u8 start_idx;
++	u8 n_levels;
++	s8 start_pwr;
++	s8 pwr_step;
++};
++
++/**
+  * struct ieee80211_hw - hardware information and state
+  *
+  * This structure contains the configuration and hardware
+@@ -2824,11 +2845,11 @@ enum ieee80211_hw_flags {
+  *
+  * @max_mtu: the max mtu could be set.
+  *
+- * @tx_power_levels: a list of power levels supported by the wifi hardware.
+- * 	The power levels can be specified either as integer or fractions.
+- * 	The power level at idx 0 shall be the maximum positive power level.
++ * @txpower_ranges: a list of tx-power level ranges supported by the wifi
++ * 	hardware. The driver can specify multiple ranges with e.g. different
++ * 	scales.
+  *
+- * @max_txpwr_levels_idx: the maximum valid idx of 'tx_power_levels' list.
++ * @n_txpower_ranges: the number of power ranges defined in @txpower_ranges.
+  */
+ struct ieee80211_hw {
+ 	struct ieee80211_conf conf;
+@@ -2865,8 +2886,8 @@ struct ieee80211_hw {
+ 	u8 tx_sk_pacing_shift;
+ 	u8 weight_multiplier;
+ 	u32 max_mtu;
+-	const s8 *tx_power_levels;
+-	u8 max_txpwr_levels_idx;
++	struct ieee80211_hw_txpower_range *txpower_ranges;
++	u8 n_txpower_ranges;
+ };
+ 
+ static inline bool _ieee80211_hw_check(struct ieee80211_hw *hw,
+@@ -2883,6 +2904,8 @@ static inline void _ieee80211_hw_set(str
+ }
+ #define ieee80211_hw_set(hw, flg)	_ieee80211_hw_set(hw, IEEE80211_HW_##flg)
+ 
++s16 ieee80211_hw_get_max_txpower_idx(struct ieee80211_hw *hw);
++
+ /**
+  * struct ieee80211_scan_request - hw scan request
+  *
+--- a/net/mac80211/util.c
++++ b/net/mac80211/util.c
+@@ -4846,3 +4846,22 @@ void ieee80211_fragment_element(struct s
+ 
+ 	*len_pos = elem_len;
+ }
++
++s16
++ieee80211_hw_get_max_txpower_idx(struct ieee80211_hw *hw)
++{
++	u8 max_idx = 0;
++	int i;
++
++	if (!hw || !hw->txpower_ranges || !hw->n_txpower_ranges)
++		return -1;
++
++	for (i = 0; i < hw->n_txpower_ranges; i++) {
++		u8 idx = hw->txpower_ranges[i].start_idx +
++			 hw->txpower_ranges[i].n_levels - 1;
++		max_idx = max_t(u8, idx, max_idx);
++	}
++
++	return (s16)max_idx;
++}
++EXPORT_SYMBOL(ieee80211_hw_get_max_txpower_idx);

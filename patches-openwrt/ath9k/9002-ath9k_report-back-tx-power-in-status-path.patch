@@ -1,6 +1,6 @@
 --- a/drivers/net/wireless/ath/ath9k/xmit.c
 +++ b/drivers/net/wireless/ath/ath9k/xmit.c
-@@ -51,7 +51,7 @@ static void ath_tx_send_normal(struct at
+@@ -57,7 +57,7 @@ static void ath_tx_send_normal(struct at
  			       struct ath_atx_tid *tid, struct sk_buff *skb);
  static void ath_tx_complete(struct ath_softc *sc, struct sk_buff *skb,
  			    int tx_flags, struct ath_txq *txq,
@@ -9,30 +9,34 @@
  static void ath_tx_complete_buf(struct ath_softc *sc, struct ath_buf *bf,
  				struct ath_txq *txq, struct list_head *bf_q,
  				struct ieee80211_sta *sta,
-@@ -85,10 +85,31 @@ static void ath_tx_status(struct ieee802
+@@ -91,15 +91,42 @@ static void ath_tx_status(struct ieee802
  {
  	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
  	struct ieee80211_sta *sta = info->status.status_driver_data[0];
++	struct ath_tx_status_ext *txs_ext = info->status.status_driver_data[1];
 +	struct ieee80211_tx_status status = { .sta = sta, .info = info, .skb = skb };
-+	struct ath_tx_status_ext *status_ext = info->status.status_driver_data[1];
 +	struct ieee80211_rate_status rates[IEEE80211_TX_MAX_RATES];
 +	struct rate_info cur_ri;
-+	u8 i = 0;
++	u8 i;
 +
 +	for (i = 0; i < IEEE80211_TX_MAX_RATES &&
 +		    info->status.rates[i].idx >= 0 &&
 +		    info->status.rates[i].count > 0; i++)
 +	{
-+		ieee80211_rate_get_rate_info(&info->status.rates[i],
-+					     hw->wiphy, info->band, &cur_ri);
-+		rates[i] = (struct ieee80211_rate_status){
-+			.try_count = info->status.rates[i].count,
-+			.rate_idx = cur_ri,
-+			.tx_power_idx = status_ext ? status_ext->txpower_idx[i] : -1,
-+		};
++		ieee80211_txrate_get_rate_info(&info->status.rates[i],
++					       hw->wiphy, info->band, &cur_ri);
++		rates[i].rate_idx = cur_ri;
++		rates[i].try_count = info->status.rates[i].count;
++		if (txs_ext)
++			rates[i].txpower_idx = txs_ext->txpower_idx[i];
++		else
++			rates[i].txpower_idx = -1;
 +	}
 +	status.rates = rates;
 +	status.n_rates = i;
++
++	if (txs_ext)
++		kfree(txs_ext);
  
  	if (info->flags & (IEEE80211_TX_CTL_REQ_TX_STATUS |
  			   IEEE80211_TX_STATUS_EOSP)) {
@@ -42,7 +46,16 @@
  		return;
  	}
  
-@@ -376,7 +397,7 @@ static void ath_tid_drain(struct ath_sof
+-	if (sta)
+-		ieee80211_tx_status_noskb(hw, sta, info);
++	if (sta) {
++		status.skb = NULL;
++		ieee80211_tx_status_ext(hw, &status);
++	}
+ 
+ 	dev_kfree_skb(skb);
+ }
+@@ -382,7 +409,7 @@ static void ath_tid_drain(struct ath_sof
  		bf = fi->bf;
  
  		if (!bf) {
@@ -51,7 +64,7 @@
  			continue;
  		}
  
-@@ -2451,13 +2472,15 @@ void ath_tx_cabq(struct ieee80211_hw *hw
+@@ -2482,13 +2509,15 @@ void ath_tx_cabq(struct ieee80211_hw *hw
  
  static void ath_tx_complete(struct ath_softc *sc, struct sk_buff *skb,
  			    int tx_flags, struct ath_txq *txq,
@@ -68,7 +81,7 @@
  
  	ath_dbg(common, XMIT, "TX complete: skb: %p\n", skb);
  
-@@ -2496,8 +2519,20 @@ static void ath_tx_complete(struct ath_s
+@@ -2527,8 +2556,20 @@ static void ath_tx_complete(struct ath_s
  	}
  	spin_unlock_irqrestore(&sc->sc_pm_lock, flags);
  
@@ -89,7 +102,7 @@
  	__skb_queue_tail(&txq->complete_q, skb);
  }
  
-@@ -2531,7 +2566,7 @@ static void ath_tx_complete_buf(struct a
+@@ -2562,7 +2603,7 @@ static void ath_tx_complete_buf(struct a
  			complete(&sc->paprd_complete);
  	} else {
  		ath_debug_stat_tx(sc, bf, ts, txq, tx_flags);
@@ -100,7 +113,7 @@
  	/* At this point, skb (bf->bf_mpdu) is consumed...make sure we don't
 --- a/drivers/net/wireless/ath/ath9k/mac.h
 +++ b/drivers/net/wireless/ath/ath9k/mac.h
-@@ -121,6 +121,22 @@ struct ath_tx_status {
+@@ -123,6 +123,22 @@ struct ath_tx_status {
  	u32 duration;
  };
  

@@ -1,0 +1,44 @@
+--- a/net/mac80211/rc80211_minstrel_ht.c
++++ b/net/mac80211/rc80211_minstrel_ht.c
+@@ -1517,14 +1517,21 @@ minstrel_ht_update_rates(struct minstrel
+ 		return;
+ 
+ 	/* Start with max_tp_rate[0] */
+-	minstrel_ht_set_rate(mp, mi, rates, i++, mi->max_tp_rate[0]);
++	minstrel_ht_set_rate(mp, mi, rates, i, mi->max_tp_rate[0]);
++	rates->rate[i].txpower_idx = -1;
++	i++;
+ 
+ 	/* Fill up remaining, keep one entry for max_probe_rate */
+-	for (; i < (max_rates - 1); i++)
++	for (; i < (max_rates - 1); i++) {
+ 		minstrel_ht_set_rate(mp, mi, rates, i, mi->max_tp_rate[i]);
++		rates->rate[i].txpower_idx = -1;
++	}
+ 
+-	if (i < max_rates)
+-		minstrel_ht_set_rate(mp, mi, rates, i++, mi->max_prob_rate);
++	if (i < max_rates) {
++		minstrel_ht_set_rate(mp, mi, rates, i, mi->max_prob_rate);
++		rates->rate[i].txpower_idx = -1;
++		i++;
++	}
+ 
+ 	if (i < IEEE80211_TX_RATE_TABLE_SIZE)
+ 		rates->rate[i].idx = -1;
+@@ -1560,6 +1567,7 @@ minstrel_ht_get_rate(void *priv, struct
+ 	struct minstrel_ht_sta *mi = priv_sta;
+ 	struct minstrel_priv *mp = priv;
+ 	u16 sample_idx;
++	s16 sample_txpower = -1;
+ 
+ 	info->flags |= mi->tx_flags;
+ 
+@@ -1605,6 +1613,7 @@ minstrel_ht_get_rate(void *priv, struct
+ 	}
+ 
+ 	rate->flags = sample_group->flags;
++	info->control.txpower_idx = sample_txpower;
+ }
+ 
+ static void

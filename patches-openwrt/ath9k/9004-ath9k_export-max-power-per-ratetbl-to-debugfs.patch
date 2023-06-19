@@ -1,0 +1,113 @@
+--- a/drivers/net/wireless/ath/ath9k/debug.c
++++ b/drivers/net/wireless/ath/ath9k/debug.c
+@@ -1227,6 +1227,102 @@ static const struct file_operations fops
+ 	.llseek = default_llseek,
+ };
+ 
++static unsigned int print_txpwr_table(struct ath_hw *ah, char *dest,
++				      unsigned int size)
++{
++	unsigned int i = 0, len = 0;
++	u8 ofdm_shift, mcs_shift;
++	bool is_2ghz = IS_CHAN_2GHZ(ah->curchan);
++	bool is_ht40 = IS_CHAN_HT40(ah->curchan);
++
++	len += scnprintf(dest + len, size - len, "RATE IDX\tMAX PWRIDX\n");
++	if (is_2ghz) {
++		for (; i < 4; i++)
++			len += scnprintf(dest + len, size - len, "%u (CCK)\t\t%u\n",
++					 i, ah->tx_power[i]);
++	}
++
++	ofdm_shift = i;
++	mcs_shift = ofdm_shift + 8;
++	for (; i < ofdm_shift + 8; i++)
++		len += scnprintf(dest + len, size - len, "%u (OFDM)\t%u\n",
++				 i - ofdm_shift, ah->tx_power[i]);
++
++	len += scnprintf(dest + len, size - len, "HT%c0\n", is_ht40 ? '4' : '2');
++	for (; i < Ar5416RateSize; i++) {
++		u8 mcs = i - mcs_shift;
++		len += scnprintf(dest + len, size - len, "%u (MCS)%s%u\n",
++				 mcs, (mcs < 10) ? "\t\t" : "\t", ah->tx_power[i]);
++	}
++
++	return len;
++}
++
++static unsigned int print_txpwr_table_stbc(struct ath_hw *ah, char *dest,
++					   unsigned int size)
++{
++	unsigned int i = 0, len = 0;
++	u8 ofdm_shift, mcs_shift;
++	bool is_2ghz = IS_CHAN_2GHZ(ah->curchan);
++	bool is_ht40 = IS_CHAN_HT40(ah->curchan);
++
++	len += scnprintf(dest + len, size - len,
++			 "RATE IDX\tMAX PWRIDX (NON-STBC)\tMAX PWRIDX (STBC)\n");
++	if (is_2ghz) {
++		for (; i < 4; i++)
++			len += scnprintf(dest + len, size - len, "%u (CCK)\t\t%u\t\t\t%u\n",
++					 i, ah->tx_power[i], ah->tx_power_stbc[i]);
++	}
++
++	ofdm_shift = i;
++	mcs_shift = ofdm_shift + 8;
++	for (; i < ofdm_shift + 8; i++)
++		len += scnprintf(dest + len, size - len, "%u (OFDM)\t%u\t\t\t%u\n",
++				 i - ofdm_shift, ah->tx_power[i], ah->tx_power_stbc[i]);
++
++	len += scnprintf(dest + len, size - len, "HT%c0\n", is_ht40 ? '4' : '2');
++	for (; i < Ar5416RateSize; i++) {
++		u8 mcs = i - mcs_shift;
++		len += scnprintf(dest + len, size - len, "%u (MCS)%s%u\t\t\t%u\n",
++				 mcs, (mcs < 10) ? "\t\t" : "\t",
++				 ah->tx_power[i], ah->tx_power_stbc[i]);
++	}
++
++	return len;
++}
++
++static ssize_t read_file_txpwr_table(struct file *file, char __user *user_buf,
++				     size_t count, loff_t *ppos)
++{
++	struct ath_softc *sc = file->private_data;
++	struct ath_hw *ah = sc->sc_ah;
++	char buf[768] = {0};
++	unsigned int len = 0, size = 768;
++
++	if (!ah->tpc_enabled) {
++		len += scnprintf(buf + len, size - len,
++				 "TPC DISABLED, TABLE NOT INITIALISED\n");
++		goto out;
++	}
++
++	len += scnprintf(buf + len, size - len, "MAXIMUM TRANSMIT POWER INDEX PER RATE\n\n");
++
++	if (AR_SREV_9300_20_OR_LATER(ah))
++		len += print_txpwr_table_stbc(ah, buf + len, size);
++	else
++		len += print_txpwr_table(ah, buf + len, size);
++
++out:
++	return simple_read_from_buffer(user_buf, count, ppos, buf, len);
++}
++
++static const struct file_operations fops_txpwr_table = {
++	.read = read_file_txpwr_table,
++	.open = simple_open,
++	.owner = THIS_MODULE,
++	.llseek = default_llseek,
++};
++
+ static ssize_t read_file_nf_override(struct file *file,
+ 				     char __user *user_buf,
+ 				     size_t count, loff_t *ppos)
+@@ -1697,6 +1793,7 @@ int ath9k_init_debug(struct ath_hw *ah)
+ 			    sc, &fops_ackto);
+ #endif
+ 	debugfs_create_file("tpc", 0600, sc->debug.debugfs_phy, sc, &fops_tpc);
++	debugfs_create_file("txpwr_table", 0400, sc->debug.debugfs_phy, sc, &fops_txpwr_table);
+ 
+ 	debugfs_create_file("nf_override", 0600,
+ 			    sc->debug.debugfs_phy, sc, &fops_nf_override);

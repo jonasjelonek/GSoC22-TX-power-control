@@ -1,0 +1,89 @@
+From 98390e3b3c7ad631c55758fd6e98ec5b62450bf4 Mon Sep 17 00:00:00 2001
+From: Jonas Jelonek <jelonek.jonas@gmail.com>
+Date: Wed, 18 Jan 2023 13:51:07 +0100
+Subject: [PATCH 4/7] mac80211: add utility function for tx_rate - rate_info
+ conversion
+
+Adds an utility function to mac80211 for conversion from ieee80211_tx_rate
+(mac80211.h) to rate_info (cfg80211.h).
+
+struct ieee80211_tx_rate is space limited to annotate rates up to IEEE
+802.11ac. The new struct rate_info is able to annotate IEEE 802.11ax and
+beyond. Several drivers internally still use ieee80211_tx_rate but
+mac80211 expects rate_info in struct ieee80211_rate_status. This struct
+is in turn required to allow, e.g., tx-power status report or dynamic
+number of mrr stages.
+
+Signed-off-by: Jonas Jelonek <jelonek.jonas@gmail.com>
+---
+ include/net/mac80211.h | 19 +++++++++++++++++++
+ net/mac80211/util.c    | 33 +++++++++++++++++++++++++++++++++
+ 2 files changed, 52 insertions(+)
+
+--- a/include/net/mac80211.h
++++ b/include/net/mac80211.h
+@@ -1085,6 +1085,25 @@ ieee80211_rate_get_vht_nss(const struct
+ }
+ 
+ /**
++ * ieee80211_txrate_get_rate_info - tx_rate -> rate_info conversion
++ *
++ * Converts a ieee80211_tx_rate to rate_info. This is intended for drivers
++ * which use ieee80211_tx_rate to annotate rates in control and status path.
++ *
++ * ieee80211_tx_rate only supports rates up to VHT but newer structures in
++ * mac80211 and newer drivers rely on struct rate_info to be able to cover
++ * faster rates. This function can be used to adopt to that.
++ *
++ * @rate: The rate that should be converted
++ * @wiphy: wiphy that @rate is used with
++ * @band: band that @rate operates in
++ * @rate_info: Pointer to a struct rate_info to store the result in
++ */
++void ieee80211_txrate_get_rate_info(const struct ieee80211_tx_rate *rate,
++				    struct wiphy *wiphy, u8 band,
++				    struct rate_info *rate_info);
++
++/**
+  * struct ieee80211_tx_info - skb transmit information
+  *
+  * This structure is placed in skb->cb for three uses:
+--- a/net/mac80211/util.c
++++ b/net/mac80211/util.c
+@@ -4865,3 +4865,36 @@ ieee80211_hw_get_max_txpower_idx(struct
+ 	return (s16)max_idx;
+ }
+ EXPORT_SYMBOL(ieee80211_hw_get_max_txpower_idx);
++
++void ieee80211_txrate_get_rate_info(const struct ieee80211_tx_rate *rate,
++                                    struct wiphy *wiphy, u8 band,
++                                    struct rate_info *rate_info)
++{
++       memset(rate_info, 0, sizeof(struct rate_info));
++
++       if (rate->flags & IEEE80211_TX_RC_MCS) { /* 802.11n */
++               rate_info->flags |= RATE_INFO_FLAGS_MCS;
++               rate_info->mcs = rate->idx;
++       } else if (rate->flags & IEEE80211_TX_RC_VHT_MCS) { /* 802.11ac */
++               rate_info->flags |= RATE_INFO_FLAGS_VHT_MCS;
++               rate_info->mcs = ieee80211_rate_get_vht_mcs(rate);
++               rate_info->nss = ieee80211_rate_get_vht_nss(rate);
++       } else { /* 802.11a/b/g */
++               rate_info->legacy = wiphy->bands[band]->bitrates[rate->idx].bitrate;
++               rate_info->bw = RATE_INFO_BW_20;
++               return;
++       }
++
++       if (rate->flags & IEEE80211_TX_RC_40_MHZ_WIDTH)
++               rate_info->bw = RATE_INFO_BW_40;
++       else if (rate->flags & IEEE80211_TX_RC_80_MHZ_WIDTH)
++               rate_info->bw = RATE_INFO_BW_80;
++       else if (rate->flags & IEEE80211_TX_RC_160_MHZ_WIDTH)
++               rate_info->bw = RATE_INFO_BW_160;
++       else
++               rate_info->bw = RATE_INFO_BW_20;
++
++       if (rate->flags & IEEE80211_TX_RC_SHORT_GI)
++               rate_info->flags |= RATE_INFO_FLAGS_SHORT_GI;
++}
++EXPORT_SYMBOL(ieee80211_txrate_get_rate_info);
